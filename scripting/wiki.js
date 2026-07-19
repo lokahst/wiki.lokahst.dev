@@ -358,6 +358,5 @@
   scrim.addEventListener("click", closeMobileMenu);
   window.addEventListener("hashchange", handleRouteChange);
 
-  if (!location.hash.startsWith("#/")) location.replace("#/home");
-  else handleRouteChange();
+handleRouteChange();
 })();
