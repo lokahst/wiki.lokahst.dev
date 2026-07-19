@@ -23,7 +23,7 @@
     String(value).replaceAll("\\", "/").split("/").forEach((part) => {
       if (!part || part === ".") return;
       if (part === "..") parts.pop();
-      else if (/^[a-zA-Z0-9_-]+$/.test(part)) parts.push(part);
+      else if (/^[a-zA-Z0-9_.-]+$/.test(part)) parts.push(part);
     });
     return parts.join("/");
   }
@@ -49,7 +49,7 @@
       : `${base}/${cleanPath}`;
     const route = normalizeRoute(joined.replace(/\.md$/i, ""));
     if (!route) return null;
-    return `#/${route}${section ? `?section=${encodeURIComponent(slugify(decode(section)))}` : ""}`;
+    return WikiProjects.pageUrl(route, section ? slugify(decode(section)) : "");
   }
 
   function relativeAsset(target, currentPath) {
@@ -59,7 +59,7 @@
     const query = queryIndex === -1 ? "" : path.slice(queryIndex);
     const base = currentPath.includes("/") ? currentPath.slice(0, currentPath.lastIndexOf("/")) : "";
     const resolved = normalizeRoute(`${base}/${pathname}`);
-    return resolved ? `pages/${resolved}${query}${section ? `#${encodeURIComponent(section)}` : ""}` : "";
+    return resolved ? `/pages/${resolved}${query}${section ? `#${encodeURIComponent(section)}` : ""}` : "";
   }
 
   function resolveTarget(value, currentPath = "") {
@@ -68,10 +68,14 @@
 
     const route = markdownRoute(target, currentPath);
     if (route) return { href: route, external: false };
-    if (target.startsWith("#/")) return { href: target, external: false };
+    if (target.startsWith("#/")) {
+      const legacy = target.slice(2).split("?");
+      const section = new URLSearchParams(legacy[1] || "").get("section") || "";
+      return { href: WikiProjects.pageUrl(normalizeRoute(legacy[0]), section), external: false };
+    }
     if (target.startsWith("#")) {
       const section = slugify(decode(target.slice(1)));
-      return { href: `#/${currentPath || "home"}?section=${encodeURIComponent(section)}`, external: false };
+      return { href: WikiProjects.pageUrl(currentPath || "home", section), external: false };
     }
     if (/^(https?:)?\/\//i.test(target)) return { href: target, external: true };
     if (/^mailto:/i.test(target)) return { href: target, external: false };

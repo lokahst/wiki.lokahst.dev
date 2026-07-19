@@ -1,64 +1,7 @@
 (function () {
   "use strict";
 
-  const projects = [
-    {
-      id: "general", title: "Lokahst", pages: [
-        { path: "home", title: "Wiki home" }
-      ]
-    },
-    {
-      id: "lotn", title: "Legends of the North", pages: [
-      { path: "lotn/index", title: "Overview" },
-      {
-        title: "Gameplay",
-        children: [
-          { path: "lotn/gameplay/leveling", title: "Leveling" },
-          { path: "lotn/gameplay/attributes", title: "Attributes" },
-          { path: "lotn/gameplay/skilltree", title: "Skill Trees" },
-        
-          { path: "lotn/gameplay/stamina", title: "Stamina" },
-          { path: "lotn/gameplay/magicka", title: "Magicka" },
-          { path: "lotn/gameplay/weight", title: "Weight System" },
-        
-          { path: "lotn/gameplay/temperature", title: "Temperature" },
-          { path: "lotn/gameplay/injuries", title: "Injuries" },
-          { path: "lotn/gameplay/fasttravel", title: "Fast Travel" }
-        ]
-      },
-      {
-        title: "Administration",
-        children: [
-          { path: "lotn/administration/configuration", title: "Configuration" },
-          { path: "lotn/administration/commands", title: "Commands" },
-          { path: "lotn/administration/permissions", title: "Permissions" },
-          { path: "lotn/administration/placeholders", title: "Placeholders" }
-        ]
-      }
-      ]
-    },
-    {
-      id: "valentines", title: "Valentines", pages: [
-          { path: "valentines/index", title: "Overview" },
-          { path: "valentines/commands", title: "Commands" },
-          { path: "valentines/permissions", title: "Permissions" },
-          { path: "valentines/configuration", title: "Configuration" },
-          { path: "valentines/placeholders", title: "Placeholders" },
-
-          { path: "valentines/interactions", title: "Interactions" },
-          { path: "valentines/moods", title: "Moods" },
-          { path: "valentines/effects", title: "Effects" },
-          { path: "valentines/playerprofile", title: "Player Profile" },
-
-          { path: "valentines/friends", title: "Friends" },
-          { path: "valentines/marriage", title: "Marriage" },
-          { path: "valentines/age", title: "Age" },
-          { path: "valentines/leaderboard", title: "Leaderboard" },
-
-          { path: "valentines/achievements", title: "Achievements" },
-      ]
-    }
-  ];
+  const { projects, cleanPath, pageUrl } = window.WikiProjects;
 
   const byId = (id) => document.getElementById(id);
   const navTree = byId("nav-tree");
@@ -68,6 +11,7 @@
   const sidebar = byId("sidebar");
   const scrim = byId("sidebar-scrim");
   const menuButton = byId("menu-button");
+  const canonicalLink = document.querySelector('link[rel="canonical"]');
   const sourceCache = new Map();
   const supportedMeta = new Set(["title", "description", "updated"]);
   let headingObserver;
@@ -82,22 +26,30 @@
   }));
   const pagesByPath = new Map(flatPages.map((page) => [page.path, page]));
 
-  function cleanPath(value) {
-    let decoded = String(value);
-    try { decoded = decodeURIComponent(decoded); } catch (_) { return ""; }
-    const parts = decoded.replaceAll("\\", "/").split("/").filter(Boolean);
-    return parts.length && parts.every((part) => /^[a-zA-Z0-9_-]+$/.test(part)) ? parts.join("/") : "";
+  function routeState(url = new URL(location.href)) {
+    const pathname = url.pathname.replace(/(?:^|\/)index\.html\/?$/i, "/").replace(/\.html\/?$/i, "");
+    let path = cleanPath(pathname);
+    if (!path) path = "home";
+    if (!pagesByPath.has(path) && pagesByPath.has(`${path}/index`)) path = `${path}/index`;
+    return { path, section: url.searchParams.get("section") || "" };
   }
 
-  function routeState() {
-    const route = location.hash.startsWith("#/") ? location.hash.slice(2) : "home";
+  function restoreFallbackRoute() {
+    const redirected = new URLSearchParams(location.search).get("__wiki_route");
+    if (!redirected || !redirected.startsWith("/") || redirected.startsWith("//")) return;
+    const target = new URL(redirected, location.origin);
+    if (target.origin !== location.origin) return;
+    history.replaceState(null, "", `${target.pathname}${target.search}${target.hash}`);
+  }
+
+  function migrateLegacyHashRoute() {
+    if (!location.hash.startsWith("#/")) return;
+    const route = location.hash.slice(2);
     const queryStart = route.indexOf("?");
-    const rawPath = queryStart === -1 ? route : route.slice(0, queryStart);
+    const path = cleanPath(queryStart === -1 ? route : route.slice(0, queryStart)) || "home";
     const query = queryStart === -1 ? "" : route.slice(queryStart + 1);
-    return {
-      path: cleanPath(rawPath) || "home",
-      section: new URLSearchParams(query).get("section") || ""
-    };
+    const section = new URLSearchParams(query).get("section") || "";
+    history.replaceState(null, "", pageUrl(path, section));
   }
 
   function renderNavigation(path) {
@@ -132,7 +84,7 @@
   }
 
   function navLink(page) {
-    return `<a class="nav-link" href="#/${WikiMarkdown.escapeHtml(page.path)}" data-page="${WikiMarkdown.escapeHtml(page.path)}"><span>${WikiMarkdown.escapeHtml(page.title)}</span></a>`;
+    return `<a class="nav-link" href="${WikiMarkdown.escapeHtml(pageUrl(page.path))}" data-page="${WikiMarkdown.escapeHtml(page.path)}"><span>${WikiMarkdown.escapeHtml(page.title)}</span></a>`;
   }
 
   function markActiveLink(path) {
@@ -174,7 +126,7 @@
     return parts.map((part, index) => {
       const separator = index ? '<span class="breadcrumb-separator" aria-hidden="true">/</span>' : "";
       const content = part.path
-        ? `<a href="#/${WikiMarkdown.escapeHtml(part.path)}">${WikiMarkdown.escapeHtml(part.title)}</a>`
+        ? `<a href="${WikiMarkdown.escapeHtml(pageUrl(part.path))}">${WikiMarkdown.escapeHtml(part.title)}</a>`
         : `<span>${WikiMarkdown.escapeHtml(part.title)}</span>`;
       return separator + content;
     }).join("");
@@ -182,7 +134,7 @@
 
   async function getPageSource(path, signal) {
     if (sourceCache.has(path)) return sourceCache.get(path);
-    const url = `pages/${path.split("/").map(encodeURIComponent).join("/")}.md`;
+    const url = `/pages/${path.split("/").map(encodeURIComponent).join("/")}.md`;
     const response = await fetch(url, { cache: "no-cache", signal });
     if (!response.ok) {
       const error = new Error(`HTTP ${response.status}`);
@@ -228,6 +180,7 @@
       ].filter(Boolean);
 
       document.title = `${title} · Lokahst Wiki`;
+      canonicalLink.href = new URL(pageUrl(path), location.origin).href;
       article.dataset.path = path;
       article.innerHTML = `
         <header class="article-head">
@@ -240,7 +193,7 @@
 
       article.querySelectorAll(".heading-anchor").forEach((anchor) => {
         const heading = anchor.closest("h1, h2, h3, h4, h5, h6");
-        anchor.href = `#/${path}?section=${encodeURIComponent(heading.id)}`;
+        anchor.href = pageUrl(path, heading.id);
       });
       loadedPath = path;
       renderToc(path);
@@ -281,7 +234,7 @@
     headingObserver?.disconnect();
     const headings = [...article.querySelectorAll(".markdown-body h2, .markdown-body h3")];
     tocLinks.innerHTML = headings.length
-      ? headings.map((heading) => `<a href="#/${path}?section=${encodeURIComponent(heading.id)}" data-level="${heading.tagName.slice(1)}" data-heading="${WikiMarkdown.escapeHtml(heading.id)}">${WikiMarkdown.escapeHtml(headingText(heading))}</a>`).join("")
+      ? headings.map((heading) => `<a href="${WikiMarkdown.escapeHtml(pageUrl(path, heading.id))}" data-level="${heading.tagName.slice(1)}" data-heading="${WikiMarkdown.escapeHtml(heading.id)}">${WikiMarkdown.escapeHtml(headingText(heading))}</a>`).join("")
       : '<span class="toc-empty">No sections on this page.</span>';
     if (!("IntersectionObserver" in window)) return;
 
@@ -305,9 +258,29 @@
   }
 
   function handleRouteChange() {
-    const { path } = routeState();
+    const { path, section } = routeState();
+    if (pagesByPath.has(path)) {
+      const canonicalPath = pageUrl(path, section);
+      if (`${location.pathname}${location.search}` !== canonicalPath) history.replaceState(null, "", canonicalPath);
+    }
     if (path === loadedPath) scrollToSection();
     else loadPage(path);
+  }
+
+  function handleInternalLink(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const anchor = event.target.closest("a[href]");
+    if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
+
+    const target = new URL(anchor.href, location.href);
+    if (target.origin !== location.origin) return;
+    const { path } = routeState(target);
+    if (!pagesByPath.has(path)) return;
+
+    event.preventDefault();
+    const nextUrl = `${target.pathname}${target.search}`;
+    if (`${location.pathname}${location.search}` !== nextUrl) history.pushState(null, "", nextUrl);
+    handleRouteChange();
   }
 
   async function copyCode(button) {
@@ -354,9 +327,12 @@
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && sidebar.classList.contains("open")) closeMobileMenu();
   });
+  document.addEventListener("click", handleInternalLink);
   menuButton.addEventListener("click", () => sidebar.classList.contains("open") ? closeMobileMenu() : openMobileMenu());
   scrim.addEventListener("click", closeMobileMenu);
-  window.addEventListener("hashchange", handleRouteChange);
+  window.addEventListener("popstate", handleRouteChange);
 
-handleRouteChange();
+  restoreFallbackRoute();
+  migrateLegacyHashRoute();
+  handleRouteChange();
 })();
