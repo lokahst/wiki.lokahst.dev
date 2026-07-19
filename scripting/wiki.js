@@ -196,7 +196,7 @@
 
   function setLoading() {
     article.setAttribute("aria-busy", "true");
-    article.innerHTML = '<div class="loading-state"><span class="loading-state__mark"></span><span>Opening the wiki…</span></div>';
+    article.innerHTML = '<div class="loading-state"><span class="loading-state__mark"></span><span>Opening the wiki...</span></div>';
     tocLinks.innerHTML = "";
   }
 
